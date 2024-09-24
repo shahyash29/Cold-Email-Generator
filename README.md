@@ -9,27 +9,27 @@ This project is a Cold Email Generator web application built using Python, Strea
 **Project Links Integration**: Automatically pull relevant project links from a CSV file to showcase in the email.
 **Cold Email Generation**: Use the ChatGroq LLM to create a personalized cold email, matching your skills and projects to the job description.
 
-**Requirements**
-To run the project, ensure you have the following installed:
+**Requirements** <br>
+To run the project, ensure you have the following installed: <br>
 
-Python 3.8+
-Streamlit
-PyPDF2
-ChromaDB
-LangChain Groq LLM
-uuid
-csv
-re
-WebBaseLoader
+Python 3.8+<br>
+Streamlit<br>
+PyPDF2<br>
+ChromaDB<br>
+LangChain Groq LLM<br>
+uuid<br>
+csv<br>
+re<br>
+WebBaseLoader<br>
 
-**Output**
+**Output**<br>
 The following image shows User interface of my cold email generator
 
 ![Cold Email Generator UI](./images/cold%20email.png)
 
-
+<br>
 The following image shows the ouput of cold email generate when resume is uploaded
 
-[!Ouput of my cold email generator](./images/cold%20email%20output.png)
+![Ouput of my cold email generator](./images/cold%20email%20output.png)
 
 
