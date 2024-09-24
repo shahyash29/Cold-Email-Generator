@@ -28,8 +28,8 @@ The following image shows User interface of my cold email generator
 ![Cold Email Generator UI](./images/cold%20email.png)
 
 <br>
-The following image shows the ouput of cold email generate when resume is uploaded
+The following image shows the ouput of cold email generate when resume is uploaded <br>
 
-![Ouput of my cold email generator](./images/cold%20email%20output.png)
+![Ouput of my cold email generator](./images/emailoutput.png)
 
 
