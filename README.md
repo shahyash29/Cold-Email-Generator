@@ -23,12 +23,10 @@ re<br>
 WebBaseLoader<br>
 
 **Output**<br>
-The following image shows User interface of my cold email generator
+The following image shows User interface and Ouput of my cold email generator
 
 ![Cold Email Generator UI](./images/cold%20email.png)
 
-<br>
-The following image shows the ouput of cold email generate when resume is uploaded <br>
 
 ![Ouput of my cold email generator](./images/emailoutput.png)
 
