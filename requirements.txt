@@ -1,5 +1,5 @@
 chromadb==0.3.21
-langchain-core==0.0.275
+langchain-core==0.3.6
 langchain-groq==0.1.2
 langchain-community==0.0.54
 PyPDF2==3.0.1
