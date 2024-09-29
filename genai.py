@@ -1,8 +1,7 @@
 import os
 import re
 import uuid
-import csv
-from PyPDF2 import PdfReader
+import fitz # PyMuPDF
 import chromadb
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
@@ -11,6 +10,13 @@ import streamlit as st
 
 # Set environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Set the page title and layout using Streamlit's page configuration
+st.set_page_config(
+    page_title="Cold Email Generator",  # Set the title of the browser tab
+    page_icon="📧",  # Optional: Set a favicon for the page
+    layout="centered",  # Page layout (can be 'wide' or 'centered')
+)
 
 # Initialize ChromaDB Persistent Client
 client = chromadb.PersistentClient(path='vectorstore')
@@ -23,27 +29,74 @@ llm = ChatGroq(
 )
 
 def clean_text(text):
-    # Remove HTML tags
+    # Remove HTML tags and special characters
     text = re.sub(r'<[^>]*?>', '', text)
-    # Remove URLs
-    text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
-    # Remove special characters
     text = re.sub(r'[^a-zA-Z0-9 ]', '', text)
-    # Replace multiple spaces with a single space
     text = re.sub(r'\s{2,}', ' ', text)
-    # Trim leading and trailing whitespace
     return text.strip()
 
-def load_resume(resume_file):
+def extract_urls_from_text(text):
+    # Regex pattern to find URLs
+    url_pattern = r'(https?://[^\s]+)'
+    urls = re.findall(url_pattern, text)
+    return urls
+
+def extract_links_from_pdf(pdf_path):
+    """ Extract links from the PDF using PyMuPDF (fitz). """
+    doc = fitz.open(pdf_path)
+    links = []
+
+    # Iterate through all the pages and extract links
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)  # Load the page
+        for link in page.get_links():
+            if link.get("uri"):  # If the link contains a URL
+                links.append(link.get("uri"))
+
+    doc.close()
+    return links
+
+def extract_linkedin_github(urls):
+    # More specific regex patterns for LinkedIn and GitHub
+    linkedin_url = next((url for url in urls if re.match(r'https?://(www\.)?linkedin\.com/.*', url)), None)
+    github_url = next((url for url in urls if re.match(r'https?://(www\.)?github\.com/.*', url)), None)
+    print(linkedin_url, github_url)
+    return linkedin_url, github_url
+
+def extract_projects_section(resume_text):
+    # Extract the "Projects" section by finding the section labeled "Projects"
+    projects_section = ""
+    project_section_pattern = r'(Projects)([\s\S]*?)(\n\n|\Z)'  # Find "Projects" section
+    match = re.search(project_section_pattern, resume_text)
+    if match:
+        projects_section = match.group(2)
+    
+    # Split by line to get individual project entries
+    project_lines = [line.strip() for line in projects_section.split('\n') if line.strip()]
+    return project_lines
+
+def load_resume_and_extract_links(resume_file_path):
     try:
-        reader = PdfReader(resume_file)
+        # Open the PDF and extract links using PyMuPDF (fitz)
+        links = extract_links_from_pdf(resume_file_path)
+        
+        # Read the text from the resume using PyMuPDF
+        doc = fitz.open(resume_file_path)
         resume_text = ""
-        for page in reader.pages:
-            resume_text += page.extract_text()
-        return clean_text(resume_text)
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+            resume_text += page.get_text()
+
+        doc.close()
+
+        resume_text = clean_text(resume_text)
+        extracted_urls = extract_urls_from_text(resume_text)  # Extract URLs from text
+        linkedin_url, github_url = extract_linkedin_github(links)  # Extract LinkedIn and GitHub URLs
+        projects = extract_projects_section(resume_text)  # Extract "Projects" section
+        return resume_text, links, projects, linkedin_url, github_url
     except Exception as e:
         st.error(f"Error reading resume file: {e}")
-        return ""
+        return "", [], [], None, None
 
 def store_resume_in_chroma(resume_text):
     try:
@@ -61,27 +114,15 @@ def store_job_description_in_chroma(job_description, url):
     except Exception as e:
         st.error(f"Failed to store job description in ChromaDB: {e}")
 
-# Load specific project links from the uploaded CSV file
-def load_project_links():
-    project_links = {}
-    try:
-        with open("Projects - Sheet1.csv", mode='r') as file:
-            csv_reader = csv.DictReader(file)
-            for row in csv_reader:
-                project_name = row['Project Name']
-                project_url = row['Project Link']
-                project_links[project_name] = project_url
-    except Exception as e:
-        st.error(f"Error loading project links: {e}")
-    return project_links
-
-# Match projects to their specific links, but exclude Research Assistant project
-def query_portfolio_links_with_projects(resume_text, project_links):
+# Match projects to their specific links using URLs from resume
+def query_portfolio_links_with_projects(projects, urls):
     relevant_projects = []
-    exclude_project = "Research Assistant"  # Exclude Research Assistant-related project
-    for project in project_links:
-        if project in resume_text and exclude_project not in project:
-            relevant_projects.append(f"{project}: {project_links[project]}")
+    for project in projects:
+        # Assign URL if available, else show 'No URL found'
+        if urls:
+            relevant_projects.append(f"{project}: {urls.pop(0)}")  # Use the first available URL for each project
+        else:
+            relevant_projects.append(f"{project}: No URL found")
     return relevant_projects
 
 def scrape_job_description(url):
@@ -114,34 +155,35 @@ prompt_email_template = PromptTemplate.from_template(
         - A professional greeting addressing the hiring manager (if a name is available).
         - A brief introduction of yourself, including your degree, years of experience, and how you found the job.
         - A clear connection between your skills and the job description (mention specific experiences).
-        - A brief mention of relevant projects work that showcases your expertise (GitHub and LinkedIn links should be included only within this section and not at the end).
-        - A request for a meeting or further discussion about the opportunity.
-        - Avoid any redundant addition of LinkedIn or GitHub URLs at the end
+        - A brief mention of relevant projects work that showcases your expertise.
+        
+        Add your LinkedIn: {linkedin_link} and GitHub: {github_link} links at the end.
     """
 )
 
-def generate_cold_email(job_description, resume_text, project_links):
+def generate_cold_email(job_description, resume_text, project_links, linkedin_link, github_link):
     try:
-        # Map the projects to their corresponding links, excluding Research Assistant projects
-        project_links_in_email = query_portfolio_links_with_projects(resume_text, project_links)
-        
-        # Integrate project-specific links into the email template
         chain_email = prompt_email_template | llm
         email_content = chain_email.invoke({
             "job_description": job_description,
             "resume": resume_text,
-            "links": project_links_in_email,  # Inject the specific project links
+            "links": project_links,  # Inject the specific project links
+            "linkedin_link": linkedin_link or "No LinkedIn URL found",  # Default if not found
+            "github_link": github_link or "No GitHub URL found"  # Default if not found
         })
-        
-        email_content_with_links = email_content.content
-        return email_content_with_links
+        return email_content.content
     except Exception as e:
         st.error(f"Failed to generate cold email: {e}")
         return ""
 
-# Update Streamlit function to integrate project links from CSV
+# Update Streamlit function to process resume and detect links
 def create_streamlit_app():
     st.title("📧 Cold Email Generator")
+
+    st.markdown("""
+        Welcome to the **Cold Email Generator** app. This app helps you create personalized cold emails 
+        based on your resume and the job description. Just upload your resume, provide a job URL, and generate a tailored email!
+    """)
 
     url_input = st.text_input("Enter a Job URL:", value="https://jobs.nike.com/job/R-38583")
     resume_file = st.file_uploader("Upload your resume (PDF)", type="pdf")
@@ -149,19 +191,25 @@ def create_streamlit_app():
     submit_button = st.button("Generate Cold Email")
 
     if submit_button and resume_file:
+        # Save the uploaded file to a temporary directory
+        with open("/tmp/resume.pdf", "wb") as f:
+            f.write(resume_file.read())
+
         job_description = scrape_job_description(url_input)
         if not job_description:
             st.error("Failed to scrape job description. Please check the URL.")
             return
 
-        resume_text = load_resume(resume_file)
+        # Extract resume text, URLs, and projects
+        resume_text, urls, projects, linkedin_url, github_url = load_resume_and_extract_links("/tmp/resume.pdf")
         store_resume_in_chroma(resume_text)
         store_job_description_in_chroma(job_description, url_input)
 
-        # Load project links from the uploaded CSV
-        project_links = load_project_links()
-
-        email = generate_cold_email(job_description, resume_text, project_links)
+        # Automatically detect project names and assign URLs if available
+        relevant_projects = query_portfolio_links_with_projects(projects, urls)
+        
+        # Generate the cold email
+        email = generate_cold_email(job_description, resume_text, relevant_projects, linkedin_url, github_url)
         st.code(email, language='markdown')
 
 if __name__ == "__main__":
