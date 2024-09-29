@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-import fitz # PyMuPDF
+import fitz  # PyMuPDF for PDF parsing
 import chromadb
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
@@ -60,7 +60,6 @@ def extract_linkedin_github(urls):
     # More specific regex patterns for LinkedIn and GitHub
     linkedin_url = next((url for url in urls if re.match(r'https?://(www\.)?linkedin\.com/.*', url)), None)
     github_url = next((url for url in urls if re.match(r'https?://(www\.)?github\.com/.*', url)), None)
-    print(linkedin_url, github_url)
     return linkedin_url, github_url
 
 def extract_projects_section(resume_text):
@@ -137,8 +136,9 @@ def scrape_job_description(url):
         st.error(f"Failed to load the job description: {e}")
         return None
 
+# Restore original email prompt template
 prompt_email_template = PromptTemplate.from_template(
-    """
+     """
         ### JOB DESCRIPTION:
         {job_description}
         
@@ -146,30 +146,35 @@ prompt_email_template = PromptTemplate.from_template(
         {resume}
         
         ### INSTRUCTION:
-        You are applying for the job described above. Write a personalized cold email highlighting your skills 
-        and experiences from your resume that match the job description. Be concise, professional, and persuasive.
-        
-        Also, showcase the relevant projects from these links: {links}.
+        You are applying for the job described above. Write a short, concise, and professional cold email by selecting 
+        only the most relevant experience and projects from your resume that match the job description. Avoid unnecessary 
+        details, focus on key skills and achievements, and keep the email brief. 
         
         The email should include:
         - A professional greeting addressing the hiring manager (if a name is available).
         - A brief introduction of yourself, including your degree, years of experience, and how you found the job.
-        - A clear connection between your skills and the job description (mention specific experiences).
-        - A brief mention of relevant projects work that showcases your expertise.
+        - Mention key experiences from experience section(without using subtitles) that align with the job requirements.
+        - Mention key projects from project section(without using subtitles) that align with the job requirements.
+        - End the email professionally with "Best regards" and your name.
         
-        Add your LinkedIn: {linkedin_link} and GitHub: {github_link} links at the end.
+
+        If present, include your LinkedIn: {linkedin_link} and GitHub: {github_link} links at the end.
     """
 )
 
 def generate_cold_email(job_description, resume_text, project_links, linkedin_link, github_link):
     try:
+        # Adjust the template based on whether LinkedIn and GitHub are available
+        linkedin_info = f"LinkedIn: {linkedin_link}" if linkedin_link else ""
+        github_info = f"GitHub: {github_link}" if github_link else ""
+
         chain_email = prompt_email_template | llm
         email_content = chain_email.invoke({
             "job_description": job_description,
             "resume": resume_text,
             "links": project_links,  # Inject the specific project links
-            "linkedin_link": linkedin_link or "No LinkedIn URL found",  # Default if not found
-            "github_link": github_link or "No GitHub URL found"  # Default if not found
+            "linkedin_link": linkedin_info,  # Add LinkedIn link dynamically
+            "github_link": github_info  # Add GitHub link dynamically
         })
         return email_content.content
     except Exception as e:
